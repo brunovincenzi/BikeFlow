@@ -1,0 +1,117 @@
+name: bikeflow
+
+x-mongo-common: &mongo-common
+  image: mongo:7.0.14
+  restart: unless-stopped
+  command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+  healthcheck:
+    test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand({ping: 1}).ok ? 0 : 1)"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 10s
+  networks: [bikeflow]
+
+services:
+  mongo-1:
+    <<: *mongo-common
+    hostname: mongo-1
+    volumes:
+      - mongo-1-data:/data/db
+
+  mongo-2:
+    <<: *mongo-common
+    hostname: mongo-2
+    volumes:
+      - mongo-2-data:/data/db
+
+  mongo-3:
+    <<: *mongo-common
+    hostname: mongo-3
+    volumes:
+      - mongo-3-data:/data/db
+
+  mongo-init:
+    image: mongo:7.0.14
+    restart: "no"
+    depends_on:
+      mongo-1:
+        condition: service_healthy
+      mongo-2:
+        condition: service_healthy
+      mongo-3:
+        condition: service_healthy
+    volumes:
+      - ./scripts/mongo-init.sh:/scripts/mongo-init.sh:ro
+    entrypoint: ["bash", "/scripts/mongo-init.sh"]
+    networks: [bikeflow]
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: bikeflow-backend:local
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/bikeflow?replicaSet=rs0&retryWrites=true&w=majority
+      MONGO_DATABASE: bikeflow
+      LOG_LEVEL: INFO
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [bikeflow]
+
+  simulator:
+    profiles: [simulation]
+    build:
+      context: .
+      dockerfile: docker/simulator.Dockerfile
+    image: bikeflow-simulator:local
+    environment:
+      BACKEND_URL: http://backend:8000
+      SIM_BIKES: ${SIM_BIKES:-20}
+      SIM_EVENTS_PER_SECOND: ${SIM_EVENTS_PER_SECOND:-2}
+      SIM_DURATION_SECONDS: ${SIM_DURATION_SECONDS:-60}
+      SIM_SEED: ${SIM_SEED:-42}
+      SIM_DUPLICATE_PROBABILITY: ${SIM_DUPLICATE_PROBABILITY:-0.05}
+      SIM_ANOMALY_PROBABILITY: ${SIM_ANOMALY_PROBABILITY:-0.03}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [bikeflow]
+
+  tests:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: docker/test.Dockerfile
+    image: bikeflow-tests:local
+    environment:
+      MONGO_TEST_URI: mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/?replicaSet=rs0&retryWrites=true&w=majority
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    networks: [bikeflow]
+
+volumes:
+  mongo-1-data:
+  mongo-2-data:
+  mongo-3-data:
+
+networks:
+  bikeflow:
+    driver: bridge

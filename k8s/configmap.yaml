@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bikeflow-config
+  namespace: bikeflow
+data:
+  MONGO_URI: mongodb://mongo-0.mongo.bikeflow.svc.cluster.local:27017,mongo-1.mongo.bikeflow.svc.cluster.local:27017,mongo-2.mongo.bikeflow.svc.cluster.local:27017/bikeflow?replicaSet=rs0&retryWrites=true&w=majority
+  MONGO_DATABASE: bikeflow
+  MONGO_COLLECTION: telemetry
+  MONGO_SERVER_SELECTION_TIMEOUT_MS: "2000"
+  MONGO_CONNECT_TIMEOUT_MS: "2000"
+  LOG_LEVEL: INFO
+

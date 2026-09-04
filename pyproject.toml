@@ -1,0 +1,42 @@
+[project]
+name = "bikeflow"
+version = "0.1.0"
+description = "Backend distribuito didattico per telemetria bike-sharing"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.6",
+  "httpx==0.28.1",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.1",
+  "pymongo==4.10.1",
+  "uvicorn[standard]==0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.4",
+  "pytest-cov==6.0.0",
+  "ruff==0.8.6",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "integration: richiede un replica set MongoDB raggiungibile",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.coverage.run]
+branch = true
+source = ["backend", "simulator"]
+

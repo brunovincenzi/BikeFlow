@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-rs-init
+  namespace: bikeflow
+  labels:
+    app.kubernetes.io/name: mongo-rs-init
+    app.kubernetes.io/part-of: bikeflow
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongo-rs-init
+        app.kubernetes.io/part-of: bikeflow
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: initialize
+          image: mongo:7.0.14
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["bash", "-ec"]
+          args:
+            - |
+              direct_uri="mongodb://mongo-0.mongo.bikeflow.svc.cluster.local:27017/admin?directConnection=true"
+              replica_uri="mongodb://mongo-0.mongo.bikeflow.svc.cluster.local:27017,mongo-1.mongo.bikeflow.svc.cluster.local:27017,mongo-2.mongo.bikeflow.svc.cluster.local:27017/admin?replicaSet=rs0"
+              until mongosh "$direct_uri" --quiet --eval 'quit(db.adminCommand({ping: 1}).ok ? 0 : 1)'; do
+                echo "Waiting for mongo-0"
+                sleep 2
+              done
+              mongosh "$direct_uri" --quiet <<'JAVASCRIPT'
+              try {
+                const current = rs.conf();
+                if (current.members.length !== 3) {
+                  throw new Error(`Replica set has ${current.members.length} members; expected 3`);
+                }
+                print("Replica set already configured");
+              } catch (error) {
+                if (error.codeName === "NotYetInitialized" || error.code === 94) {
+                  rs.initiate({
+                    _id: "rs0",
+                    members: [
+                      {_id: 0, host: "mongo-0.mongo.bikeflow.svc.cluster.local:27017", priority: 2},
+                      {_id: 1, host: "mongo-1.mongo.bikeflow.svc.cluster.local:27017", priority: 1},
+                      {_id: 2, host: "mongo-2.mongo.bikeflow.svc.cluster.local:27017", priority: 1}
+                    ]
+                  });
+                  print("Replica set initialization requested");
+                } else {
+                  throw error;
+                }
+              }
+              JAVASCRIPT
+              until mongosh "$replica_uri" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)'; do
+                echo "Waiting for primary election"
+                sleep 2
+              done
+              mongosh "$replica_uri" --quiet --eval '
+                const status = rs.status();
+                if (status.members.length !== 3) quit(2);
+                printjson(status.members.map(m => ({name: m.name, state: m.stateStr})));
+              '
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

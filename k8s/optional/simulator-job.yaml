@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: simulator
+  namespace: bikeflow
+  labels:
+    app.kubernetes.io/name: simulator
+    app.kubernetes.io/part-of: bikeflow
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: simulator
+        app.kubernetes.io/part-of: bikeflow
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: simulator
+          image: bikeflow-simulator:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BACKEND_URL
+              value: http://backend:8000
+            - name: SIM_BIKES
+              value: "20"
+            - name: SIM_EVENTS_PER_SECOND
+              value: "5"
+            - name: SIM_DURATION_SECONDS
+              value: "60"
+            - name: SIM_SEED
+              value: "42"
+            - name: SIM_DUPLICATE_PROBABILITY
+              value: "0.10"
+            - name: SIM_ANOMALY_PROBABILITY
+              value: "0.05"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
